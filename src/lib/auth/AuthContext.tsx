@@ -39,23 +39,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentUser);
         
         if (currentUser) {
-          // Fetch extended profile data from Firestore
-          const userDocRef = doc(db, "users", currentUser.uid);
-          const userDoc = await getDoc(userDocRef);
-          
-          if (userDoc.exists()) {
-            setUserProfile(userDoc.data());
-          } else {
-            // Setup initial user doc if it's the first time
-            const newProfile = {
-              uid: currentUser.uid,
-              displayName: currentUser.displayName || "",
-              email: currentUser.email || "",
-              paymentDetails: { revolutTag: "", iban: "" },
-              createdAt: new Date()
-            };
-            await setDoc(userDocRef, newProfile);
-            setUserProfile(newProfile);
+          try {
+            // Fetch extended profile data from Firestore
+            const userDocRef = doc(db, "users", currentUser.uid);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (userDoc.exists()) {
+              setUserProfile(userDoc.data());
+            } else {
+              // Setup initial user doc if it's the first time
+              const newProfile = {
+                uid: currentUser.uid,
+                displayName: currentUser.displayName || "",
+                email: currentUser.email || "",
+                paymentDetails: { revolutTag: "", iban: "" },
+                createdAt: new Date()
+              };
+              await setDoc(userDocRef, newProfile);
+              setUserProfile(newProfile);
+            }
+          } catch (err: any) {
+            console.error("Firestore Error in AuthContext:", err);
+            alert("Eroare gravă de Bază de Date: Mergi în Firebase Console -> Firestore Database -> Rules, și modifică linia în 'allow read, write: if true;' pentru a debloca aplicația!");
           }
         } else {
           setUserProfile(null);
