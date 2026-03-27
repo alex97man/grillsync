@@ -57,7 +57,7 @@ export default function ScanReceiptPage() {
       
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_DIMENSION = 1600; // Perfect for OCR, keeps receipts legible
+        const MAX_DIMENSION = 1000; // Ultra aggressive shrink to guarantee payload < 1MB
         
         let width = img.width;
         let height = img.height;
@@ -77,7 +77,7 @@ export default function ScanReceiptPage() {
         if (!ctx) return reject(new Error("No canvas"));
         
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.7)); // Auto compresses to under 500KB usually
+        resolve(canvas.toDataURL("image/jpeg", 0.5)); // Drop quality to 50%
       };
       
       img.onerror = () => reject(new Error("Img load failed"));
@@ -108,7 +108,15 @@ export default function ScanReceiptPage() {
       
       setProgress(80);
       
-      if (!res.ok) throw new Error("API Route Failed");
+      if (!res.ok) {
+        if (res.status === 413) throw new Error("Poza tot este prea mare pentry limită.");
+        let msg = `Eroare Server: ${res.status}`;
+        try {
+           const errData = await res.json();
+           msg = errData.error || msg;
+        } catch(e) {}
+        throw new Error(msg);
+      }
       
       const data = await res.json();
       
@@ -119,8 +127,9 @@ export default function ScanReceiptPage() {
       }, 1000);
 
     } catch (err: any) {
-      console.error(err);
-      setError("Ceva a mers epic fail cu prelucrarea. E prea mare poza.");
+      console.error("Scan error:", err);
+      // Afisam direct in interfata eroarea reala venita de la server
+      setError(err.message || "Eroare necunoscută la prelucrare.");
       setIsProcessing(false);
     }
   };
