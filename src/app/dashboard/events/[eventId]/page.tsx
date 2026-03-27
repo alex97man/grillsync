@@ -245,7 +245,7 @@ export default function EventPage() {
             <Beef className="w-8 h-8" />
           </div>
           <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-2">Pustietate totală!</h3>
-          <p className="text-sm text-zinc-500 max-w-sm mx-auto mb-6 px-4">Scanează bonul tău de la supermarket sau adaugă produsele unul câte unul.</p>
+          <p className="text-sm text-zinc-500 max-w-sm mx-auto mb-6 px-4">Dictează bonul folosind microfonul (Dictare Expres) sau adaugă produsele manual.</p>
           <Link href={`/dashboard/events/${eventId}/add`}>
             <Button variant="secondary" className="rounded-xl">Adaugă primul produs</Button>
           </Link>
@@ -263,9 +263,9 @@ export default function EventPage() {
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm z-50">
         <div className="glass rounded-full p-2 flex items-center gap-2 shadow-2xl border-white/40 dark:border-white/20">
           <Link href={`/dashboard/events/${eventId}/scan`} className="flex-1">
-            <Button className="w-full rounded-full gap-2 whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 dark:text-zinc-900 text-white">
+            <Button className="w-full rounded-full gap-2 whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 dark:text-zinc-900 text-white font-bold">
               <Upload className="w-4 h-4" />
-              <span>Scanează bon</span>
+              <span>Dictare Expres</span>
             </Button>
           </Link>
           <div className="w-px h-8 bg-zinc-300 dark:bg-zinc-700"></div>
