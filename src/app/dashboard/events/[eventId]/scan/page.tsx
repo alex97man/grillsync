@@ -6,8 +6,6 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, UploadCloud, FileText, CheckCircle2, RotateCw } from "lucide-react";
 import Link from "next/link";
-import { storage } from "@/lib/firebase/config";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 
 export default function ScanReceiptPage() {
   const { eventId } = useParams();
@@ -47,6 +45,15 @@ export default function ScanReceiptPage() {
     }
   };
 
+  const convertFileToBase64 = (f: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(f);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   const processReceipt = async () => {
     if (!file || !user) return;
     
@@ -55,66 +62,34 @@ export default function ScanReceiptPage() {
     setProgress(10);
     
     try {
-      // 1. Upload to Firebase Storage
-      const storageRef = ref(storage, `receipts/${eventId}/${user.uid}_${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const base64Image = await convertFileToBase64(file);
+      setProgress(50);
       
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const p = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setProgress(10 + (p * 0.4)); // 10% to 50%
-        },
-        (err) => {
-          console.error("Storage error:", err);
-          setError("Nu am putut urca poza în cloud. Internet ai?");
-          setIsProcessing(false);
-        },
-        async () => {
-          // 2. Get Download URL
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          setProgress(60);
-          
-          // 3. Call our Next.js API Route which talks to Mindee OCR
-          try {
-            const res = await fetch('/api/process-receipt', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                imageUrl: downloadURL,
-                eventId: eventId,
-                payerId: user.uid
-              }),
-            });
-            
-            setProgress(80);
-            
-            if (!res.ok) throw new Error("API Route Failed");
-            
-            const data = await res.json();
-            
-            setProgress(100);
-            
-            // Note: In a real flow, we would redirect to a "Review / Confirm Items" page 
-            // passing the extracted data, or we just save them and redirect back.
-            // For now, let's just go back to the event.
-            // A production app should have a validation UI step here.
-            
-            // Fake delay for UX
-            setTimeout(() => {
-              router.push(`/dashboard/events/${eventId}`);
-            }, 1000);
+      const res = await fetch('/api/process-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageBase64: base64Image,
+          eventId: eventId,
+          payerId: user.uid
+        }),
+      });
+      
+      setProgress(80);
+      
+      if (!res.ok) throw new Error("API Route Failed");
+      
+      const data = await res.json();
+      
+      setProgress(100);
+      
+      setTimeout(() => {
+        router.push(`/dashboard/events/${eventId}`);
+      }, 1000);
 
-          } catch (apiErr) {
-            console.error("OCR API error:", apiErr);
-            setError("Mindee API a zis pas. Probabil e pătat bonul de muștar.");
-            setIsProcessing(false);
-          }
-        }
-      );
-      
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Ceva a mers epic fail.");
+      setError("Ceva a mers epic fail cu prelucrarea. E prea mare poza.");
       setIsProcessing(false);
     }
   };

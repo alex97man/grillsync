@@ -2,13 +2,10 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase/config';
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 
-async function fetchGeminiOcr(imageUrl: string, apiKey: string) {
-  // 1. Fetch the image to convert it to base64 for Gemini payload
-  const imgRes = await fetch(imageUrl);
-  const arrayBuffer = await imgRes.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const base64Image = buffer.toString('base64');
-  const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+async function fetchGeminiOcr(imageBase64Param: string, apiKey: string) {
+  // 1. Process base64 from client
+  const [prefix, base64Data] = imageBase64Param.includes(',') ? imageBase64Param.split(',') : ['', imageBase64Param];
+  const mimeType = prefix ? prefix.split(':')[1].split(';')[0] : 'image/jpeg';
 
   const prompt = `Ești o inteligență artificială strictă și performantă, specializată exclusiv pe citirea bonurilor fiscale din România (OCR).
 Atașat este o poză cu un bon fiscal.
@@ -23,6 +20,9 @@ Formatul trebuie să fie EXACT așa:
   { "name": "Denumire Produs 2", "price": 4.00, "category": "Drinks" }
 ]`;
 
+  // to silence TS if fallback is triggered
+  const base64Image = base64Data || imageBase64Param;
+
   // 2. Call Google Gemini generating endpoint
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
@@ -34,7 +34,7 @@ Formatul trebuie să fie EXACT așa:
           {
             inline_data: {
               mime_type: mimeType,
-              data: base64Image
+              data: base64Data || base64Image
             }
           }
         ]
@@ -54,9 +54,9 @@ Formatul trebuie să fie EXACT așa:
 
 export async function POST(request: Request) {
   try {
-    const { imageUrl, eventId, payerId } = await request.json();
+    const { imageBase64, eventId, payerId } = await request.json();
 
-    if (!imageUrl || !eventId || !payerId) {
+    if (!imageBase64 || !eventId || !payerId) {
       return NextResponse.json({ error: 'Lipsește o imagine, ID-ul grătarului sau plătitorul.' }, { status: 400 });
     }
 
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
 
     if (apiKey) {
        console.log("Found GEMINI_API_KEY! Starting true remote OCR execution...");
-       items = await fetchGeminiOcr(imageUrl, apiKey);
+       items = await fetchGeminiOcr(imageBase64, apiKey);
     } else {
        console.warn("NO GEMINI_API_KEY FOUND! Falling back to MOCK simulated OCR mode.");
        // Simulate AI Vision thinking delay
