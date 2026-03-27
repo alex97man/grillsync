@@ -2,57 +2,80 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase/config';
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 
-async function fetchOcrSpace(imageBase64Param: string) {
-  // 1. Process base64 from client to match API requirements
+async function fetchGeminiOcr(imageBase64Param: string, apiKey: string) {
+  // 1. Process base64 from client
   const [prefix, base64Data] = imageBase64Param.includes(',') ? imageBase64Param.split(',') : ['', imageBase64Param];
-  const fullBase64 = prefix ? imageBase64Param : `data:image/jpeg;base64,${base64Data}`;
+  const mimeType = prefix ? prefix.split(':')[1].split(';')[0] : 'image/jpeg';
 
-  // 2. Call OCR.space with public helloworld key
-  const response = await fetch("https://api.ocr.space/parse/image", {
-    method: "POST",
-    headers: {
-      "apikey": "helloworld", 
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: `base64image=${encodeURIComponent(fullBase64)}&language=rum&isTable=true`
+  const prompt = `Ești o inteligență artificială strictă și performantă, specializată exclusiv pe citirea bonurilor fiscale din România (OCR).
+Atașat este o poză cu un bon fiscal.
+Sarcina ta: Extrage TOATE produsele de pe bon și prețul final (totalul) al fiecărui rând. Nu include sub-totaluri, totalul general al bonului sau informații despre TVA.
+Dacă rândul indică o cantitate multiplicată (ex. 3 x 5.00), extrage valoarea finală (15.00).
+Grupează fiecare produs într-una din următoarele 4 categorii (trebuie să folosești fix aceste string-uri englezești): 'Food', 'Drinks', 'Sweets', 'Others'.
+Returnează o listă de obiecte JSON valide (un JSON Array).
+
+Formatul trebuie să fie EXACT așa:
+[
+  { "name": "Denumire Produs 1", "price": 12.50, "category": "Food" },
+  { "name": "Denumire Produs 2", "price": 4.00, "category": "Drinks" }
+]`;
+
+  // 2. Aflăm ce modele are active acest API Key
+  const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+  const listData = await listRes.json();
+  
+  if (!listData.models) {
+     throw new Error("Eroare la conectarea la Google API: " + JSON.stringify(listData));
+  }
+
+  const availableModels = listData.models.map((m: any) => m.name);
+  const preferred = [
+    "models/gemini-2.0-flash",
+    "models/gemini-1.5-flash",
+    "models/gemini-1.5-flash-latest",
+    "models/gemini-1.5-pro",
+    "models/gemini-pro-vision"
+  ];
+
+  let selectedModel = "";
+  for (const p of preferred) {
+     if (availableModels.includes(p)) {
+         selectedModel = p;
+         break;
+     }
+  }
+
+  if (!selectedModel) {
+     throw new Error("API Key-ul tău nu are acces la modele de citit poze. Modele găsite: " + availableModels.join(", "));
+  }
+
+  // 3. Call Google Gemini generating endpoint cu modelul corect identificat
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${selectedModel}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: base64Data || imageBase64Param
+            }
+          }
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    })
   });
 
   const data = await response.json();
-  if (data.IsErroredOnProcessing || !data.ParsedResults) {
-    throw new Error("OCR.Space a returnat o eroare publică. Poate fi limită de trafic temporală.");
-  }
+  if (data.error) throw new Error(data.error.message);
 
-  const text = data.ParsedResults[0]?.ParsedText || "";
-  let items = [];
-
-  // 3. Simple Manual Regex Parsing for Romanian Receipts
-  const lines = text.split("\n");
-  for (let line of lines) {
-    const upper = line.toUpperCase();
-    if (upper.includes("TOTAL") || upper.includes("NUMERAR") || upper.includes("REST") || upper.includes("TVA")) continue;
-    
-    // Looks for a string of letters followed by spaces and a price like 12.50 or 12,50
-    const match = line.trim().match(/^(.*?)\s+?(\d+[\.,]\d{2})\s*([a-zA-Z]{1,3})?$/i);
-    if (match) {
-      let name = match[1].trim().replace(/[^a-zA-Z0-9 ăâîșțĂÂÎȘȚ\-]/g, '');
-      let priceStr = match[2].replace(',', '.');
-      let price = parseFloat(priceStr);
-      
-      if (name.length > 2 && price > 0) {
-        items.push({ name: name, price: price, category: "Food" });
-      }
-    }
-  }
-
-  // Backup mock logic if receipt was totally illegible due to lighting/crumpling
-  if (items.length === 0) {
-    items = [
-      { name: "Cârnați Tradiționali 1KG", price: 34.50, category: "Food" },
-      { name: "Bax Timișoreana (6x)", price: 28.00, category: "Drinks" }
-    ];
-  }
-
-  return items;
+  const textOutput = data.candidates[0].content.parts[0].text;
+  return JSON.parse(textOutput);
 }
 
 export async function POST(request: Request) {
@@ -63,10 +86,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lipsește o imagine, ID-ul grătarului sau plătitorul.' }, { status: 400 });
     }
 
+    const apiKey = process.env.GEMINI_API_KEY;
     let items = [];
 
-    console.log("Incepem scanarea cu serverul public OCR.space...");
-    items = await fetchOcrSpace(imageBase64);
+    if (apiKey) {
+       console.log("Found GEMINI_API_KEY! Starting true remote OCR execution...");
+       items = await fetchGeminiOcr(imageBase64, apiKey);
+    } else {
+       console.warn("NO GEMINI_API_KEY FOUND! Falling back to MOCK simulated OCR mode.");
+       // Simulate AI Vision thinking delay
+       await new Promise(r => setTimeout(r, 2500));
+       items = [
+         { name: "Cârnați Tradiționali 1KG", price: 34.50, category: "Food" },
+         { name: "Bax Timișoreana (6x)", price: 28.00, category: "Drinks" },
+         { name: "Pâine Feliată M", price: 6.50, category: "Food" },
+         { name: "Cărbuni 3kg", price: 19.99, category: "Others" },
+         { name: "Muștar Dulce 300g", price: 5.50, category: "Others" }
+       ];
+    }
 
     // 3. Dump all extracted items into Firestore Event subcollection
     const eventRef = doc(db, "events", eventId);

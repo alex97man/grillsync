@@ -1,120 +1,141 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Mic, Keyboard, Save, Trash2, CheckCircle2, Beef } from "lucide-react";
+import { ArrowLeft, UploadCloud, FileText, CheckCircle2, RotateCw } from "lucide-react";
 import Link from "next/link";
-import { doc, getDoc, collection, addDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase/config";
 
-interface ParsedItem {
-  id: string;
-  name: string;
-  price: number;
-}
-
-export default function FastAddPage() {
+export default function ScanReceiptPage() {
   const { eventId } = useParams();
   const { user } = useAuth();
   const router = useRouter();
   
-  const [textInput, setTextInput] = useState("");
-  const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   
-  const handleParseText = () => {
-    if (!textInput.trim()) {
-      setError("Scrie ceva mai întâi!");
-      return;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const selectedFile = e.target.files[0];
+      setFile(selectedFile);
+      setPreviewUrl(URL.createObjectURL(selectedFile));
+      setError("");
     }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const selectedFile = e.dataTransfer.files[0];
+      if (selectedFile.type.startsWith('image/')) {
+        setFile(selectedFile);
+        setPreviewUrl(URL.createObjectURL(selectedFile));
+        setError("");
+      } else {
+        setError("Acceptăm doar poze (JPG, PNG, PDF-uri transformate în poze).");
+      }
+    }
+  };
+
+  const compressImage = (f: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        if (!e.target?.result) return reject(new Error("Reader failed"));
+        img.src = e.target.result as string;
+      };
+      
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_DIMENSION = 1000; // Ultra aggressive shrink to guarantee payload < 1MB
+        
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > height && width > MAX_DIMENSION) {
+          height = Math.round((height * MAX_DIMENSION) / width);
+          width = MAX_DIMENSION;
+        } else if (height > MAX_DIMENSION) {
+          width = Math.round((width * MAX_DIMENSION) / height);
+          height = MAX_DIMENSION;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("No canvas"));
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.5)); // Drop quality to 50%
+      };
+      
+      img.onerror = () => reject(new Error("Img load failed"));
+      reader.readAsDataURL(f);
+    });
+  };
+
+  const processReceipt = async () => {
+    if (!file || !user) return;
     
+    setIsProcessing(true);
     setError("");
-    const lines = textInput.split("\n");
-    const extracted: ParsedItem[] = [];
-    
-    for (let line of lines) {
-      const tLine = line.trim();
-      if (!tLine) continue;
-      
-      // Attempt 1: Line ends with a valid price structure like "Carnati 45.50" or "Bere 12 lei" or "Apa 5,5 ron"
-      const matchFull = tLine.match(/^(.*?)\s+?(\d+[\.,]\d{0,2})\s*(lei|ron)?$/i) || 
-                        tLine.match(/^(.*?)\s+(\d+)\s*(lei|ron)?$/i);
-      
-      if (matchFull) {
-         let name = matchFull[1].trim().replace(/[^a-zA-Z0-9 ăâîșțĂÂÎȘȚ\-]/g, '');
-         let priceStr = matchFull[2].replace(',', '.');
-         let price = parseFloat(priceStr);
-         
-         if (name.length > 2 && price > 0) {
-            extracted.push({ id: Math.random().toString(36).substr(2, 9), name, price });
-            continue;
-         }
-      }
-      
-      // Attempt 2: Just find the last word acting as a number
-      const parts = tLine.split(/\s+/);
-      if (parts.length > 1) {
-         const lastPart = parts[parts.length - 1].replace(',', '.');
-         const possiblePrice = parseFloat(lastPart);
-         if (!isNaN(possiblePrice) && possiblePrice > 0) {
-            const name = parts.slice(0, parts.length - 1).join(" ").replace(/[^a-zA-Z0-9 ăâîșțĂÂÎȘȚ\-]/g, '');
-            if (name.length > 2) {
-               extracted.push({ id: Math.random().toString(36).substr(2, 9), name, price: possiblePrice });
-            }
-         }
-      }
-    }
-    
-    if (extracted.length === 0) {
-      setError("Nu am putut despărți niciun produs. Încearcă formatul: 'Nume Produs 15.50'");
-    } else {
-      setParsedItems([...parsedItems, ...extracted]);
-      setTextInput(""); // Clear input on success
-    }
-  };
-
-  const removeItem = (id: string) => {
-    setParsedItems(parsedItems.filter(i => i.id !== id));
-  };
-
-  const saveToGrill = async () => {
-    if (!user || parsedItems.length === 0) return;
-    setIsSubmitting(true);
+    setProgress(5);
     
     try {
-      // Get participants to split by default to everyone in the party
-      const eventRef = doc(db, "events", eventId as string);
-      const eventSnap = await getDoc(eventRef);
-      let eventParticipants = [user.uid];
-      if (eventSnap.exists()) {
-        eventParticipants = eventSnap.data().participants || [user.uid];
-      }
-
-      const itemsRef = collection(db, "events", eventId as string, "items");
+      const base64Image = await compressImage(file);
+      setProgress(40);
       
-      for (const item of parsedItems) {
-        await addDoc(itemsRef, {
-          name: item.name,
-          price: item.price,
-          category: "Food", // Default category
-          consumers: eventParticipants,
+      const res = await fetch('/api/process-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageBase64: base64Image,
+          eventId: eventId,
           payerId: user.uid
-        });
+        }),
+      });
+      
+      setProgress(80);
+      
+      if (!res.ok) {
+        if (res.status === 413) throw new Error("Poza tot este prea mare pentry limită.");
+        let msg = `Eroare Server: ${res.status}`;
+        try {
+           const errData = await res.json();
+           msg = errData.error || msg;
+        } catch(e) {}
+        throw new Error(msg);
       }
       
-      router.push(`/dashboard/events/${eventId}`);
-    } catch (err) {
-      console.error(err);
-      alert("A apărut o eroare la salvare.");
-      setIsSubmitting(false);
+      const data = await res.json();
+      
+      setProgress(100);
+      
+      setTimeout(() => {
+        router.push(`/dashboard/events/${eventId}`);
+      }, 1000);
+
+    } catch (err: any) {
+      console.error("Scan error:", err);
+      // Afisam direct in interfata eroarea reala venita de la server
+      setError(err.message || "Eroare necunoscută la prelucrare.");
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="max-w-xl mx-auto space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-24">
+    <div className="max-w-xl mx-auto space-y-8 animate-in slide-in-from-bottom-4 duration-500 pb-24">
       
       <div className="flex items-center gap-4">
         <Link href={`/dashboard/events/${eventId}`}>
@@ -123,77 +144,98 @@ export default function FastAddPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-extrabold text-zinc-900 dark:text-white">Adăugare Rapidă</h1>
+          <h1 className="text-2xl font-extrabold text-zinc-900 dark:text-white">Scanează Bonul</h1>
+          <p className="text-sm font-medium text-zinc-500">
+            Dă-ne poză cu foaia aia lungă de la supermarket.
+          </p>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-zinc-900/50 p-6 sm:p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm relative">
-        <p className="text-sm font-medium text-zinc-500 mb-6 leading-relaxed">
-          Folosește <strong className="text-zinc-700 dark:text-zinc-300">microfonul de la tastatura telefonului</strong> (dictare) și citește bonul. Sau pur și simplu tastează rapid <i>"Nume Preț"</i> unul sub altul.
-        </p>
+      <div className="bg-white dark:bg-zinc-900/50 p-6 sm:p-8 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden">
+        
+        {isProcessing && (
+          <div className="absolute inset-0 bg-white/90 dark:bg-zinc-900/90 z-10 backdrop-blur-sm flex flex-col items-center justify-center">
+            <RotateCw className="w-12 h-12 text-orange-500 animate-spin mb-4" />
+            <h3 className="text-xl font-bold text-zinc-900 dark:text-white mb-2">Descifrăm hieroglifele...</h3>
+            <p className="text-zinc-500 font-medium text-sm text-center mb-6">
+              Sperăm că ai luat bere bună. <br/>Așteaptă câteva secunde.
+            </p>
+            <div className="w-64 h-3 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-orange-500 transition-all duration-300 ease-out"
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <span className="text-orange-600 dark:text-orange-400 text-xs font-bold mt-2">{Math.round(progress)}%</span>
+          </div>
+        )}
 
         {error && (
-          <div className="p-3 mb-4 rounded-xl bg-red-50 text-red-600 font-medium text-sm border border-red-200">
+          <div className="p-4 mb-6 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-medium text-sm border border-red-200 dark:border-red-900/50">
             {error}
           </div>
         )}
 
-        <div className="relative mb-4">
-          <textarea 
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Exemplu rostit:&#10;Cârnați Pleșcoi 34.50&#10;Bax Timișoreana 26 lei&#10;Pâine feliată 5.5"
-            className="w-full h-40 p-4 rounded-2xl border-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 focus:outline-none focus:border-orange-500 dark:text-white resize-none transition-colors"
-          ></textarea>
-          <div className="absolute bottom-4 right-4 flex gap-2 text-zinc-400">
-            <Mic className="w-5 h-5" />
-            <Keyboard className="w-5 h-5" />
-          </div>
-        </div>
-
-        <Button onClick={handleParseText} className="w-full h-12 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 rounded-xl font-bold">
-          Analizează Textul
-        </Button>
-      </div>
-
-      {/* Preview Section */}
-      {parsedItems.length > 0 && (
-        <div className="bg-orange-50 dark:bg-orange-950/20 p-6 rounded-3xl border border-orange-200 dark:border-orange-900/30 shadow-sm animate-in zoom-in-95 duration-500">
-          <div className="flex items-center gap-2 mb-6 text-orange-800 dark:text-orange-400">
-             <CheckCircle2 className="w-6 h-6" />
-             <h3 className="text-xl font-bold">Lista Pregătită</h3>
-          </div>
-          
-          <div className="space-y-2 mb-8">
-            {parsedItems.map((item) => (
-              <div key={item.id} className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900/80 rounded-xl border border-orange-100 dark:border-orange-900/50">
-                 <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-500">
-                     <Beef className="w-4 h-4" />
-                   </div>
-                   <span className="font-semibold text-zinc-900 dark:text-white line-clamp-1 max-w-[150px] sm:max-w-xs">{item.name}</span>
-                 </div>
-                 <div className="flex items-center gap-3">
-                   <span className="font-bold text-orange-600 dark:text-orange-400">{item.price.toFixed(2)} RON</span>
-                   <button onClick={() => removeItem(item.id)} className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                   </button>
-                 </div>
-              </div>
-            ))}
-          </div>
-
-          <Button 
-            onClick={saveToGrill} 
-            disabled={isSubmitting} 
-            className="w-full h-14 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-orange-500/20 transition-all"
+        {!file ? (
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-orange-500 dark:hover:border-orange-500 rounded-3xl p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-900/50 group"
           >
-            <Save className="w-5 h-5 mr-2" />
-            {isSubmitting ? "Se încarcă pe grătar..." : `Salvează ${parsedItems.length} Produse (${parsedItems.reduce((acc, curr) => acc + curr.price, 0).toFixed(2)} RON)`}
-          </Button>
-        </div>
-      )}
+            <input 
+              type="file" 
+              className="hidden" 
+              ref={fileInputRef} 
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+            />
+            <div className="w-20 h-20 bg-white dark:bg-zinc-800 rounded-full flex items-center justify-center text-zinc-400 group-hover:text-orange-500 group-hover:scale-110 transition-all shadow-sm mb-6">
+              <UploadCloud className="w-10 h-10" />
+            </div>
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-white mb-2">Apasă sau dă drag & drop</h3>
+            <p className="text-sm text-zinc-500 max-w-xs">
+              Poți face și poze direct cu telefonul. Încearcă să încadrezi tot bonul clar.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="relative aspect-[3/4] w-full rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 shadow-sm bg-zinc-100 dark:bg-zinc-900">
+               <img 
+                src={previewUrl!} 
+                alt="Preview bon" 
+                className="object-cover w-full h-full"
+              />
+              <div className="absolute top-4 right-4">
+                <Button 
+                  type="button" 
+                  variant="destructive" 
+                  size="sm" 
+                  className="rounded-full shadow-lg"
+                  onClick={() => {
+                    setFile(null);
+                    setPreviewUrl(null);
+                  }}
+                >
+                  Schimbă poza
+                </Button>
+              </div>
+            </div>
 
+            <div className="flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-950/20 text-orange-800 dark:text-orange-200 rounded-xl border border-orange-200 dark:border-orange-900/30">
+              <FileText className="w-6 h-6 shrink-0 text-orange-500" />
+              <p className="text-sm font-medium">Bonul e lizibil? Să ne ajute zeii Machine Learning-ului!</p>
+            </div>
+            
+            <Button onClick={processReceipt} className="w-full h-14 text-lg rounded-2xl shadow-lg shadow-orange-500/20">
+              <CheckCircle2 className="w-5 h-5 mr-2" />
+              Extrage Produsele
+            </Button>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
