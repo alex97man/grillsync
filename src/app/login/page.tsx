@@ -32,7 +32,7 @@ export default function LoginPage() {
         setError("Email sau parolă greșită.");
       } else if (code === "auth/too-many-requests") {
         setError("Prea multe încercări. Contul e blocat temporar.");
-      } else if (code === "auth/operation-not-allowed") {
+      } else if (code === "auth/operation-not-allowed" || code === "auth/configuration-not-found") {
         setError("CONFIGURARE LIPSĂ: Nu ai activat 'Email/Password' în Firebase Console.");
       } else {
         setError("A apărut o eroare necunoscută. Apasă F12.");

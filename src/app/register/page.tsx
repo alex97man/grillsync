@@ -46,7 +46,7 @@ export default function RegisterPage() {
         setError("Adresa de email nu este validă.");
       } else if (code === "auth/weak-password") {
         setError("Parola trebuie să aibă minim 6 caractere.");
-      } else if (code === "auth/operation-not-allowed") {
+      } else if (code === "auth/operation-not-allowed" || code === "auth/configuration-not-found") {
         setError("CONFIGURARE LIPSĂ: Trebuie să activezi 'Email/Password' în Firebase Console > Authentication.");
       } else if (err.message && err.message.includes("permission")) {
         setError("CONFIGURARE LIPSĂ: Trebuie să mergi în Firebase Console > Firestore Database > Rules și să permiți scrierea (allow read, write: if true;).");
