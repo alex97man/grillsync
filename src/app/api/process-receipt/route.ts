@@ -74,6 +74,18 @@ Returnează strict informațiile utile conform formatului curent.`;
 }
 
 async function fetchGeminiOcr(imageBase64Param: string, apiKey: string) {
+  // 1. Process base64 from client
+  const [prefix, base64Data] = imageBase64Param.includes(',') ? imageBase64Param.split(',') : ['', imageBase64Param];
+  const mimeType = prefix ? prefix.split(':')[1].split(';')[0] : 'image/jpeg';
+
+  const prompt = `Ești o inteligență artificială strictă și performantă, specializată exclusiv pe citirea bonurilor fiscale din România (OCR).
+Atașat este o poză cu un bon fiscal.
+Sarcina ta: Extrage TOATE produsele de pe bon și prețul final (totalul) al fiecărui rând. Nu include sub-totaluri, totalul general al bonului sau informații despre TVA.
+Dacă rândul indică o cantitate multiplicată (ex. 3 x 5.00), extrage valoarea finală (15.00).
+Grupează fiecare produs într-una din următoarele 4 categorii (trebuie să folosești fix aceste string-uri englezești): 'Food', 'Drinks', 'Sweets', 'Others'.
+Returnează o listă de obiecte JSON valide (un JSON Array).
+
+Formatul trebuie să fie EXACT așa:
 [
   { "name": "Denumire Produs 1", "price": 12.50, "category": "Food" },
   { "name": "Denumire Produs 2", "price": 4.00, "category": "Drinks" }
