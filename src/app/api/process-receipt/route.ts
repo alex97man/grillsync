@@ -31,51 +31,71 @@ Formatul trebuie să fie EXACT așa:
   const availableModels = listData.models.map((m: any) => m.name);
   const preferred = [
     "models/gemini-2.0-flash",
+    "models/gemini-2.0-flash-exp",
     "models/gemini-1.5-flash",
     "models/gemini-1.5-flash-latest",
     "models/gemini-1.5-pro",
     "models/gemini-pro-vision"
   ];
 
-  let selectedModel = "";
+  let lastError: any = null;
+  let parsedJsonItems: any = null;
+
   for (const p of preferred) {
      if (availableModels.includes(p)) {
-         selectedModel = p;
-         break;
+         try {
+            console.log(`Incercăm scanarea cu modelul: ${p}`);
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${p}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    {
+                      inline_data: {
+                        mime_type: mimeType,
+                        data: base64Data || imageBase64Param
+                      }
+                    }
+                  ]
+                }],
+                generationConfig: {
+                  responseMimeType: "application/json"
+                }
+              })
+            });
+
+            const data = await response.json();
+            
+            if (data.error) {
+              if (data.error.message.includes("Quota") || data.error.message.includes("limit: 0") || data.error.code === 429) {
+                 lastError = new Error(data.error.message);
+                 console.warn(`Modelul ${p} are COTA 0 sau LIMITA depasita. Sarim la urmatorul...`);
+                 continue;
+              }
+              throw new Error(data.error.message);
+            }
+
+            const textOutput = data.candidates[0].content.parts[0].text;
+            parsedJsonItems = JSON.parse(textOutput);
+            break; // SUCCES TOTAL! Oprim bucla.
+            
+         } catch (e: any) {
+            lastError = e;
+            if (e.message.includes("Quota") || e.message.includes("limit: 0")) {
+                continue; // Sarim la urmatorul
+            }
+            throw e; // Eroare fatala (ex: JSON invalid)
+         }
      }
   }
 
-  if (!selectedModel) {
-     throw new Error("API Key-ul tău nu are acces la modele de citit poze. Modele găsite: " + availableModels.join(", "));
+  if (!parsedJsonItems) {
+     throw lastError || new Error("Toate modelele Google au fost blocate de cota 0.");
   }
 
-  // 3. Call Google Gemini generating endpoint cu modelul corect identificat
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${selectedModel}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: mimeType,
-              data: base64Data || imageBase64Param
-            }
-          }
-        ]
-      }],
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
-    })
-  });
-
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-
-  const textOutput = data.candidates[0].content.parts[0].text;
-  return JSON.parse(textOutput);
+  return parsedJsonItems;
 }
 
 export async function POST(request: Request) {
