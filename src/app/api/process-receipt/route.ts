@@ -20,11 +20,37 @@ Formatul trebuie să fie EXACT așa:
   { "name": "Denumire Produs 2", "price": 4.00, "category": "Drinks" }
 ]`;
 
-  // to silence TS if fallback is triggered
-  const base64Image = base64Data || imageBase64Param;
+  // 2. Aflăm ce modele are active acest API Key
+  const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+  const listData = await listRes.json();
+  
+  if (!listData.models) {
+     throw new Error("Eroare la conectarea la Google API: " + JSON.stringify(listData));
+  }
 
-  // 2. Call Google Gemini generating endpoint
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
+  const availableModels = listData.models.map((m: any) => m.name);
+  const preferred = [
+    "models/gemini-2.0-flash",
+    "models/gemini-1.5-flash",
+    "models/gemini-1.5-flash-latest",
+    "models/gemini-1.5-pro",
+    "models/gemini-pro-vision"
+  ];
+
+  let selectedModel = "";
+  for (const p of preferred) {
+     if (availableModels.includes(p)) {
+         selectedModel = p;
+         break;
+     }
+  }
+
+  if (!selectedModel) {
+     throw new Error("API Key-ul tău nu are acces la modele de citit poze. Modele găsite: " + availableModels.join(", "));
+  }
+
+  // 3. Call Google Gemini generating endpoint cu modelul corect identificat
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${selectedModel}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
