@@ -24,7 +24,8 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push("/dashboard");
+      const destination = new URLSearchParams(window.location.search).get("redirect") || "/dashboard";
+      router.push(destination);
     } catch (err: any) {
       console.error("Login Error:", err);
       const code = err.code || "";
@@ -44,8 +45,11 @@ export default function LoginPage() {
 
   const handleGoogleLogin = async () => {
     await signInWithGoogle();
-    router.push("/dashboard");
+    const destination = new URLSearchParams(window.location.search).get("redirect") || "/dashboard";
+    router.push(destination);
   };
+
+  const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
 
   return (
     <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-6 selection:bg-orange-500/30">
@@ -138,7 +142,7 @@ export default function LoginPage() {
         
         <p className="text-center text-sm text-zinc-500 dark:text-zinc-500 mt-8">
           Încă nu ai fost invitat vreodată la grătar? <br/>
-          <Link href="/register" className="text-orange-500 font-medium hover:underline">
+          <Link href={`/register${currentSearch}`} className="text-orange-500 font-medium hover:underline">
             Creează-ți un cont
           </Link>
         </p>

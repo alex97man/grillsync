@@ -17,7 +17,11 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push("/login");
+      let redirect = "/login";
+      if (window.location.pathname !== "/dashboard" && window.location.pathname.startsWith("/dashboard/events/")) {
+         redirect = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      }
+      router.push(redirect);
     }
   }, [user, loading, router]);
 

@@ -27,6 +27,7 @@ export default function EventPage() {
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isParticipant, setIsParticipant] = useState(true);
+  const [participantsInfo, setParticipantsInfo] = useState<{uid: string, name: string}[]>([]);
 
   useEffect(() => {
     async function fetchEventDetails() {
@@ -45,6 +46,15 @@ export default function EventPage() {
           }
           setEventData({ id: docSnap.id, ...data });
           
+          if (data.participants) {
+            const pList = [];
+            for (const pUid of data.participants) {
+              const pSnap = await getDoc(doc(db, "users", pUid));
+              pList.push({ uid: pUid, name: pSnap.exists() ? pSnap.data().displayName || "Anonim" : "Anonim" });
+            }
+            setParticipantsInfo(pList);
+          }
+
           if (data.participants && data.participants.includes(user.uid)) {
             const itemsRef = collection(db, "events", eventId as string, "items");
             const itemsSnap = await getDocs(itemsRef);
@@ -74,6 +84,7 @@ export default function EventPage() {
       const newParticipants = [...(eventData.participants || []), user.uid];
       await updateDoc(doc(db, "events", eventId as string), { participants: newParticipants });
       setEventData({ ...eventData, participants: newParticipants });
+      setParticipantsInfo(prev => [...prev, { uid: user.uid, name: user.displayName || "Nou participant" }]);
       setIsParticipant(true);
       // Fetch items gently now
       const itemsRef = collection(db, "events", eventId as string, "items");
@@ -200,6 +211,21 @@ export default function EventPage() {
             {eventData.participants?.length || 1} 
             <Plus className="w-5 h-5 opacity-50" />
           </span>
+        </div>
+      </div>
+
+      {/* Participants List */}
+      <div className="space-y-3">
+        <h3 className="font-bold text-lg text-zinc-900 dark:text-white">Cine participă?</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+           {participantsInfo.map(p => (
+             <div key={p.uid} className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-orange-500/10 text-orange-600 dark:bg-orange-900/30 flex items-center justify-center text-xs font-bold shrink-0">
+                  {p.name.substring(0, 2).toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate tracking-tight">{p.name} {p.uid === user?.uid ? "(Tu)" : ""}</span>
+             </div>
+           ))}
         </div>
       </div>
 

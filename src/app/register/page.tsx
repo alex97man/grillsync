@@ -36,7 +36,8 @@ export default function RegisterPage() {
         createdAt: new Date()
       });
 
-      router.push("/dashboard");
+      const destination = new URLSearchParams(window.location.search).get("redirect") || "/dashboard";
+      router.push(destination);
     } catch (err: any) {
       console.error("Register Error:", err);
       const code = err.code || "";
@@ -58,10 +59,12 @@ export default function RegisterPage() {
     }
   };
 
+  const currentSearch = typeof window !== 'undefined' ? window.location.search : '';
+
   return (
     <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-6 selection:bg-orange-500/30">
       
-      <Link href="/login" className="absolute top-6 left-6 flex items-center gap-2 group">
+      <Link href={`/login${currentSearch}`} className="absolute top-6 left-6 flex items-center gap-2 group">
         <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg group-hover:bg-zinc-300 dark:group-hover:bg-zinc-700 transition-colors">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-600 dark:text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white"><path d="m15 18-6-6 6-6"/></svg>
         </div>
