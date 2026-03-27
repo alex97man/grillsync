@@ -45,12 +45,43 @@ export default function ScanReceiptPage() {
     }
   };
 
-  const convertFileToBase64 = (f: File): Promise<string> => {
+  const compressImage = (f: File): Promise<string> => {
     return new Promise((resolve, reject) => {
+      const img = new Image();
       const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        if (!e.target?.result) return reject(new Error("Reader failed"));
+        img.src = e.target.result as string;
+      };
+      
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_DIMENSION = 1600; // Perfect for OCR, keeps receipts legible
+        
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > height && width > MAX_DIMENSION) {
+          height = Math.round((height * MAX_DIMENSION) / width);
+          width = MAX_DIMENSION;
+        } else if (height > MAX_DIMENSION) {
+          width = Math.round((width * MAX_DIMENSION) / height);
+          height = MAX_DIMENSION;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("No canvas"));
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7)); // Auto compresses to under 500KB usually
+      };
+      
+      img.onerror = () => reject(new Error("Img load failed"));
       reader.readAsDataURL(f);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
     });
   };
 
@@ -59,11 +90,11 @@ export default function ScanReceiptPage() {
     
     setIsProcessing(true);
     setError("");
-    setProgress(10);
+    setProgress(5);
     
     try {
-      const base64Image = await convertFileToBase64(file);
-      setProgress(50);
+      const base64Image = await compressImage(file);
+      setProgress(40);
       
       const res = await fetch('/api/process-receipt', {
         method: 'POST',
