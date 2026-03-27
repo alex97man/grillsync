@@ -34,11 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      if (!auth.app.options.apiKey || auth.app.options.apiKey === "your_api_key_here") {
-        console.warn("Firebase Auth is unconfigured. Using MOCK User.");
-        setLoading(false);
-        return;
-      }
       
       const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
         setUser(currentUser);
@@ -78,31 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      if (!auth.app.options.apiKey || auth.app.options.apiKey === "your_api_key_here") {
-        throw new Error("mock");
-      }
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.warn("Using MOCK Auth. User logged in as Demo.");
-      // MOCK USER LOGIN
-      const mockUid = "demo-user-123";
-      setUser({ uid: mockUid, displayName: "Grataragiu Demo", email: "demo@grillsync.ro" } as User);
-      setUserProfile({
-        uid: mockUid,
-        displayName: "Grataragiu Demo",
-        paymentDetails: { revolutTag: "@demo", iban: "" },
-      });
+    } catch (error: any) {
+      console.error("Firebase Auth Error:", error);
+      alert("Autentificarea a eșuat (sau ai închis fereastra).");
     }
   };
 
   const signOut = async () => {
     try {
-      if (!auth.app.options.apiKey || auth.app.options.apiKey === "your_api_key_here") {
-         setUser(null);
-         setUserProfile(null);
-         return;
-      }
       await firebaseSignOut(auth);
     } catch (error) {
       setUser(null);
