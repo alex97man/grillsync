@@ -2,19 +2,78 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/firebase/config';
 import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 
-async function fetchGeminiOcr(imageBase64Param: string, apiKey: string) {
-  // 1. Process base64 from client
+async function fetchOpenAIOcr(imageBase64Param: string, apiKey: string) {
   const [prefix, base64Data] = imageBase64Param.includes(',') ? imageBase64Param.split(',') : ['', imageBase64Param];
   const mimeType = prefix ? prefix.split(':')[1].split(';')[0] : 'image/jpeg';
+  const fullBase64Url = `data:${mimeType};base64,${base64Data || imageBase64Param}`;
 
   const prompt = `Ești o inteligență artificială strictă și performantă, specializată exclusiv pe citirea bonurilor fiscale din România (OCR).
 Atașat este o poză cu un bon fiscal.
 Sarcina ta: Extrage TOATE produsele de pe bon și prețul final (totalul) al fiecărui rând. Nu include sub-totaluri, totalul general al bonului sau informații despre TVA.
 Dacă rândul indică o cantitate multiplicată (ex. 3 x 5.00), extrage valoarea finală (15.00).
 Grupează fiecare produs într-una din următoarele 4 categorii (trebuie să folosești fix aceste string-uri englezești): 'Food', 'Drinks', 'Sweets', 'Others'.
-Returnează o listă de obiecte JSON valide (un JSON Array).
+Returnează strict informațiile utile conform formatului curent.`;
 
-Formatul trebuie să fie EXACT așa:
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini", // Model foarte ieftin (fracțiuni de cent) și extrem de capabil vizual!
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: fullBase64Url,
+                detail: "high"
+              }
+            }
+          ]
+        }
+      ],
+      response_format: { type: "json_schema", json_schema: {
+         name: "receipt_items",
+         schema: {
+             type: "object",
+             properties: {
+                 items: {
+                     type: "array",
+                     items: {
+                         type: "object",
+                         properties: {
+                             name: { type: "string" },
+                             price: { type: "number" },
+                             category: { type: "string" }
+                         },
+                         required: ["name", "price", "category"],
+                         additionalProperties: false
+                     }
+                 }
+             },
+             required: ["items"],
+             additionalProperties: false
+         },
+         strict: true
+      }},
+      max_tokens: 1500
+    })
+  });
+
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
+
+  const textContent = data.choices[0].message.content;
+  const parsed = JSON.parse(textContent);
+  return parsed.items;
+}
+
+async function fetchGeminiOcr(imageBase64Param: string, apiKey: string) {
 [
   { "name": "Denumire Produs 1", "price": 12.50, "category": "Food" },
   { "name": "Denumire Produs 2", "price": 4.00, "category": "Drinks" }
@@ -106,14 +165,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Lipsește o imagine, ID-ul grătarului sau plătitorul.' }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
     let items = [];
 
-    if (apiKey) {
+    if (openaiKey) {
+       console.log("Found OPENAI_API_KEY! Executing with ChatGPT Vision...");
+       items = await fetchOpenAIOcr(imageBase64, openaiKey);
+    } else if (geminiKey) {
        console.log("Found GEMINI_API_KEY! Starting true remote OCR execution...");
-       items = await fetchGeminiOcr(imageBase64, apiKey);
+       items = await fetchGeminiOcr(imageBase64, geminiKey);
     } else {
-       console.warn("NO GEMINI_API_KEY FOUND! Falling back to MOCK simulated OCR mode.");
+       console.warn("NO OCR API KEY FOUND! Falling back to MOCK simulated OCR mode.");
        // Simulate AI Vision thinking delay
        await new Promise(r => setTimeout(r, 2500));
        items = [
