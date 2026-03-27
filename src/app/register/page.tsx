@@ -38,8 +38,21 @@ export default function RegisterPage() {
 
       router.push("/dashboard");
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "A apărut o eroare. Încearcă din nou.");
+      console.error("Register Error:", err);
+      const code = err.code || "";
+      if (code === "auth/email-already-in-use") {
+        setError("Acest email are deja cont. Te rugăm să te loghezi.");
+      } else if (code === "auth/invalid-email") {
+        setError("Adresa de email nu este validă.");
+      } else if (code === "auth/weak-password") {
+        setError("Parola trebuie să aibă minim 6 caractere.");
+      } else if (code === "auth/operation-not-allowed") {
+        setError("CONFIGURARE LIPSĂ: Trebuie să activezi 'Email/Password' în Firebase Console > Authentication.");
+      } else if (err.message && err.message.includes("permission")) {
+        setError("CONFIGURARE LIPSĂ: Trebuie să mergi în Firebase Console > Firestore Database > Rules și să permiți scrierea (allow read, write: if true;).");
+      } else {
+        setError(err.message || "A apărut o eroare necunoscută. Apasă F12.");
+      }
     } finally {
       setLoading(false);
     }

@@ -26,8 +26,17 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       router.push("/dashboard");
     } catch (err: any) {
-      console.error(err);
-      setError("Email sau parolă greșită.");
+      console.error("Login Error:", err);
+      const code = err.code || "";
+      if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/wrong-password") {
+        setError("Email sau parolă greșită.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Prea multe încercări. Contul e blocat temporar.");
+      } else if (code === "auth/operation-not-allowed") {
+        setError("CONFIGURARE LIPSĂ: Nu ai activat 'Email/Password' în Firebase Console.");
+      } else {
+        setError("A apărut o eroare necunoscută. Apasă F12.");
+      }
     } finally {
       setLoading(false);
     }
