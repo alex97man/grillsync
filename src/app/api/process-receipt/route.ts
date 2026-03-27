@@ -60,7 +60,7 @@ Formatul trebuie să fie EXACT așa:
           {
             inline_data: {
               mime_type: mimeType,
-              data: base64Data || base64Image
+              data: base64Data || imageBase64Param
             }
           }
         ]
