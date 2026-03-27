@@ -6,17 +6,31 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Flame, LogIn, Mail } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase/config";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const { signInWithGoogle } = useAuth();
   const router = useRouter();
 
-  const handleEmailLogin = (e: React.FormEvent) => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Connect Firebase Auth
-    console.log("Login with:", email, password);
+    setLoading(true);
+    setError("");
+
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error(err);
+      setError("Email sau parolă greșită.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -49,6 +63,11 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleEmailLogin} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-100 rounded-xl text-center font-medium">
+                {error}
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300 ml-1">Email</label>
               <input 
@@ -78,9 +97,9 @@ export default function LoginPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full h-12 text-base rounded-xl mt-2">
+            <Button type="submit" disabled={loading} className="w-full h-12 text-base rounded-xl mt-2">
               <LogIn className="w-4 h-4 mr-2" />
-              Intră la grătar
+              {loading ? "Se încinge grătarul..." : "Intră la grătar"}
             </Button>
           </form>
 

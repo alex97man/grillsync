@@ -2,18 +2,47 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Flame, UserPlus } from "lucide-react";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth, db } from "@/lib/firebase/config";
+import { doc, setDoc } from "firebase/firestore";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const router = useRouter();
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Connect Firebase Auth create user
-    console.log("Registering:", name, email);
+    setLoading(true);
+    setError("");
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      await updateProfile(user, { displayName: name });
+
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        displayName: name,
+        email: email,
+        paymentDetails: { revolutTag: "", iban: "" },
+        createdAt: new Date()
+      });
+
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "A apărut o eroare. Încearcă din nou.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,6 +70,11 @@ export default function RegisterPage() {
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-100 rounded-xl text-center font-medium">
+                {error}
+              </div>
+            )}
             <div className="space-y-1">
               <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300 ml-1">Cum te strigă ai tăi?</label>
               <input 
@@ -78,9 +112,9 @@ export default function RegisterPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full h-12 text-base rounded-xl mt-4">
+            <Button type="submit" disabled={loading} className="w-full h-12 text-base rounded-xl mt-4">
               <UserPlus className="w-4 h-4 mr-2" />
-              Băgați-mă pe listă
+              {loading ? "Se pregătește lista..." : "Băgați-mă pe listă"}
             </Button>
           </form>
 
